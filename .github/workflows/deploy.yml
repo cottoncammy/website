@@ -1,0 +1,28 @@
+on:
+  push:
+    branches: [ main ]
+    paths-ignore:
+      - '.github/**'
+      - .gitattributes
+      - .gitignore
+      - COPYING
+      - README.md
+      - serve
+    workflow_dispatch: {}
+
+  jobs:
+    deploy:
+      environment:
+        name: github-pages
+        url: ${{ steps.deployment.outputs.page_url }}
+      runs-on: ubuntu-latest
+      steps: 
+        - run: |
+            sudo apt-get update
+            sudo apt-get install -y guile-3.0
+        - uses: actions/checkout@v5
+        - run: ./build
+        - uses: actions/upload-pages-artifact@v4
+          with:
+              path: out
+        - uses: actions/deploy-pages@v4
