@@ -1,0 +1,102 @@
+#!/usr/bin/guile \
+-e main -s
+!#
+(use-modules (web server)
+             (web uri)
+             (web http)
+             (web request)
+             (web response)
+             (ice-9 ftw)
+             (ice-9 binary-ports))
+
+(include "build.scm")
+
+(define* (write-file-response filepath #:key
+                              (code 200)
+                              (content-type 'text/html)
+                              (content-type-params '((charset . "utf-8"))))
+  (call-with-input-file filepath (lambda (port)
+    (let* ((stat (stat port))
+           (size (stat:size stat)))
+      (values (build-response #:code code
+                              #:headers `((content-type . 
+                                          (,content-type ,@content-type-params))))
+              (get-bytevector-n port size))))))
+
+(define (root-layout-handler path)
+  (build)
+
+  (define filename #f)
+  (if (string=? path "/")
+    (set! filename "index.html")
+    (set! filename (format #f "~a.html" path)))
+  (define filepath #f)
+
+  (define (no-op name stat result) result)
+  (define (leaf name stat result)
+    (let ((rel-path (relative-path name "out")))
+      (when (string=? filename rel-path)
+        (set! filepath name)))
+    (+ result (stat:size stat)))
+  (define (%error name stat errno result)
+    (format (current-error-port) "~a: ~a~%" name (strerror errno))
+    result)
+
+  (file-system-fold no-op leaf no-op no-op no-op %error 0 "out")
+  (if (not (eq? filepath #f))
+    (write-file-response filepath)
+    (error (format (current-error-port) "didn't find ~a for path ~a~%" filename path))))
+
+(define (srv-handler path)
+  (let ((name (relative-path path "srv")))
+    (cond
+      ((string=? name "favicon.ico") (write-file-response "srv/favicon.ico"
+                                                          #:content-type 'image/svg+xml
+                                                          #:content-type-params '()))
+      ((string=? name "gpg.key") (write-file-response "srv/gpg.key"
+                                                      #:content-type 'text/plain))
+      ((string-suffix? ".css" name) (write-file-response (format #f "srv/~a" name)
+                                                         #:content-type 'text/css))
+      ((string-suffix? ".woff2" name) (write-file-response (format #f "srv/~a" name) 
+                                                           #:content-type 'font/woff2
+                                                           #:content-type-params '()))
+      ((string-suffix? ".webp" name) (write-file-response (format #f "srv/~a" name) 
+                                                          #:content-type 'image/webp
+                                                          #:content-type-params '()))
+      (else
+        (error (format (current-error-port) "no handler for asset ~a~%" path))))))
+
+(define routes
+  (list (cons "" root-layout-handler)
+        (cons "srv" srv-handler)))
+
+(define (request-paths req)
+  (let* ((paths (split-and-decode-uri-path (uri-path (request-uri req))))
+         (paths-len (length paths)))
+    (if (= paths-len 0) '("" "") paths)))
+
+(define (bad-request)
+  (values (build-response #:code 400)
+          "400 Bad Request"))
+
+(define (not-found)
+  (write-file-response "layouts/404.html" #:code 404))
+
+(define (site-handler req body)
+  (cond
+    ((not (eq? (request-method req) 'GET)) (bad-request))
+    ((not (eq? body #f)) (bad-request))
+    (else 
+      (let* ((paths (request-paths req))
+             (paths-cdr (cdr paths))
+             (route-handler (assoc-ref routes (car paths))))
+        (if (eq? route-handler #f)
+          (not-found)
+          (route-handler (if (= (length paths-cdr) 0)
+                           "" 
+                           (string-join paths "/"))))))))
+
+(define (main args)
+  (when (> (length args) 1)
+    (error (format (current-error-port) "invalid args: ~a" args)))
+  (run-server site-handler))

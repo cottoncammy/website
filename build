@@ -1,0 +1,9 @@
+#!/usr/bin/guile \
+-e main -s
+!#
+(include "build.scm")
+
+(define (main args)
+  (when (> (length args) 1)
+    (error (format (current-error-port) "invalid args: ~a" args)))
+  (build))
