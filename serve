@@ -50,9 +50,6 @@
 (define (srv-handler path)
   (let ((name (relative-path path "srv")))
     (cond
-      ((string=? name "favicon.ico") (write-file-response "srv/favicon.ico"
-                                                          #:content-type 'image/svg+xml
-                                                          #:content-type-params '()))
       ((string=? name "gpg.key") (write-file-response "srv/gpg.key"
                                                       #:content-type 'text/plain))
       ((string-suffix? ".css" name) (write-file-response (format #f "srv/~a" name)
